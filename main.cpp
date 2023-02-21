@@ -10,8 +10,6 @@
 
 using namespace std;
 
-void calcAvg();
-
 bool getImage(string path, uint32*& raster, uint32 &w, uint32 &h, size_t &npixels) {
     TIFF* tif = TIFFOpen(path.c_str(), "r");
     if(tif) {
@@ -211,5 +209,8 @@ int main()
         cout << "  " << counter/numberOfMethods*100 << "%" << endl;
     }
 
+    delete[] raster;
+    for(uint8 i = 0; i < numberOfMethods; i++)
+        delete brokenPixels[i];
     delete[] brokenPixels;
 }
