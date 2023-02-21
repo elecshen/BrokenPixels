@@ -117,8 +117,8 @@ uint8 median(uint8 f, uint8 s, uint8 t) {
 
 QSet<size_t>* medianBrokenPixelSearch(uint32* raster, uint32 w, size_t npixels, const double error) {
     const size_t poss[4][2] {{w, w+2}, {1, 2*w+1}, {0, 2*w+2}, {2*w, 2}};
-    const size_t cPos = w+1;
-    uint8 cPixel;
+    const size_t cPos = w+1; // позиция проверяемого пикселя
+    uint8 cPixel; // значение проверяемого пикселя
     uint16 channels[4];
     bool isBrokenPixel;
     QSet<size_t>* brokenPixels = new QSet<size_t>;
@@ -161,15 +161,137 @@ QSet<size_t>* medianBrokenPixelSearch(uint32* raster, uint32 w, size_t npixels, 
     return brokenPixels;
 }
 
+size_t chosePixel(double* P){
+    uint8 maxI = 0;
+    for(uint8 i = 1; i < 8; i++){
+        if(P[maxI] < P[i]) maxI = i;
+    }
+    return maxI;
+}
+
+QSet<size_t>* hierarchyBrokenPixelSearch(uint32* raster, uint32 w, size_t npixels, const double error) {
+    QSet<size_t>* brokenPixels = new QSet<size_t>;
+    size_t directions[8] = {0, 1, 2, w, w+2, 2*w, 2*w+1, 2*w+2};
+    size_t comparedPixel = w+1;
+    uint16** sumsRasterRGBA = new uint16* [npixels]; // суммы значений соседних пикселей по каналам
+    uint8* samePixels = new uint8[npixels]; // количество соседних пикселей того же цвета
+
+    for(size_t i = 0; i < npixels; i++) {
+        sumsRasterRGBA[i] = new uint16[4] {0,0,0,0};
+        if(i < npixels - 2*w-2) {
+            samePixels[i] = 0;
+            for(uint8 dir = 0, channel; dir < 8; dir++) {
+                for(channel = 0; channel < 4; channel++) {
+                    sumsRasterRGBA[i][channel] += (raster[i + directions[dir]] >> channel*8) & 0xff;
+                }
+                if(((raster[i + comparedPixel] >> channel*8) & 0xff) == ((raster[i + directions[dir]] >> channel*8) & 0xff))
+                    samePixels[i]++;
+            }
+        }
+    }
+
+    uint16 avgNeighborPixelRGBA[8][4]; // средние значения окружающих пикселей для 8 соседних пикселей
+    double sumAvgNPixelsRGBA [4]; // сумма средних значений соседних пикселей
+    size_t checkingPos, secondCheckingPos; // позиция обрабатываемого пикселя; позиция потивоположного checkingPos пикселя относительно центрально
+    double P[8]; // вероятность выбора пикселя
+
+    double samePixelsSum; // сумма 8 соседних пикселей из массива samePixels
+    double V[8]; // вероятность выбора пикселя по критерию 2
+
+    uint16 diffOppositePixelsRGBA[4][4]; // разница противолежащих пикселей
+    double sumDiffsRGBA[4]; // сумма разниц
+    double W[8]; // вероятность выбора пикселя по критерию 3
+
+    const uint16 M = 255, avgM = M*7, diffM = M*8;
+
+    bool isBrokenPixel;
+    double delta;
+    for(size_t i = 0; i < npixels - 2*w-2; i++){
+        if(!(i%w < w-2))
+            continue;
+        for(uint8 a = 0; a < 8; a++){
+            P[a] = 0;
+            V[a] = 0;
+            W[a] = 0;
+        }
+        for(uint8 channel = 0; channel < 4; channel++){
+            sumAvgNPixelsRGBA[channel] = avgM;
+            sumDiffsRGBA[channel] = diffM;
+        }
+        samePixelsSum = 0;
+        for(uint8 dir = 0, channel; dir < 8; dir++){
+            checkingPos = i + directions[dir];
+            if(dir < 4)
+                secondCheckingPos = i + directions[7 - dir];
+            for(channel = 0; channel < 4; channel++) {
+                avgNeighborPixelRGBA[dir][channel] = (sumsRasterRGBA[checkingPos][channel] - ((raster[i + comparedPixel] >> channel*8) & 0xff)) / 7; // 7 - pixelToAvg
+                sumAvgNPixelsRGBA[channel] -= avgNeighborPixelRGBA[dir][channel];
+                if(dir < 4) {
+                    if(((raster[checkingPos] >> channel*8) & 0xff) > ((raster[secondCheckingPos] >> channel*8) & 0xff)) {
+                        diffOppositePixelsRGBA[dir][channel] = ((raster[checkingPos] >> channel*8) & 0xff) - ((raster[secondCheckingPos] >> channel*8) & 0xff);
+                        sumDiffsRGBA[channel] -= diffOppositePixelsRGBA[dir][channel];
+                    }
+                    else {
+                        diffOppositePixelsRGBA[dir][channel] = ((raster[secondCheckingPos] >> channel*8) & 0xff) - ((raster[checkingPos] >> channel*8) & 0xff);
+                        sumDiffsRGBA[channel] -= diffOppositePixelsRGBA[dir][channel];
+                    }
+                }
+            }
+
+            if(samePixels[i] != 0){
+                V[dir] = samePixels[i + directions[dir]];
+                samePixelsSum += V[dir];
+            }
+        }
+        for(uint8 dir = 0, channel; dir < 8; dir++) {
+            for(channel = 0; channel < 4; channel++){
+                P[dir] += (M - avgNeighborPixelRGBA[dir][channel]) / sumAvgNPixelsRGBA[channel];
+            }
+            if(V[dir] != 0){
+                P[dir] += V[dir] / samePixelsSum;
+            }
+            if(dir < 4)
+                for(channel = 0; channel < 4; channel++){
+                    W[dir] = (M - diffOppositePixelsRGBA[dir][channel]) / sumDiffsRGBA[channel];
+                    P[dir] += W[dir];
+                    P[7 - dir] += W[dir];
+                }
+        }
+
+        isBrokenPixel = false;
+        for(uint8 channel = 0; channel < 4; channel++) {
+            delta = int16((raster[i + comparedPixel] >> channel*8) & 0xff) - int16((raster[i + directions[chosePixel(P)]] >> channel*8) & 0xff);
+            if(delta >= 0 && delta > error) {
+                isBrokenPixel = true;
+                break;
+            } else if(delta < 0 && delta < -error) {
+                isBrokenPixel = true;
+                break;
+            }
+        }
+        if(isBrokenPixel) {
+            *brokenPixels << i + comparedPixel;
+        }
+    }
+
+    // delete
+    for(size_t i = 0 ; i < npixels; i++) {
+        delete[] sumsRasterRGBA[i];
+    }
+    delete[] sumsRasterRGBA;
+    delete[] samePixels;
+    return brokenPixels;
+}
+
 int main()
 {
     time_t start, end;
 
     uint32* raster = nullptr; uint32 w = 0, h = 0; size_t npixels = 0;
-    uint8 numberOfMethods = 3;
+    uint8 numberOfMethods = 4;
     QSet<size_t>** brokenPixels = new QSet<size_t>*[numberOfMethods];
     QSet<size_t> commonBrokenPixels;
-    double error = 15;
+    double error = 25;
 
     if(getImage("D:\\source\\Qt\\untitled\\white_2.tif", raster, w, h, npixels)) {
         start = clock();
@@ -186,6 +308,11 @@ int main()
         brokenPixels[2] = medianBrokenPixelSearch(raster, w, npixels, error);
         end = clock();
         cout << "median3 milliseconds: " << end - start << endl;
+
+        start = clock();
+        brokenPixels[3] = hierarchyBrokenPixelSearch(raster, w, npixels, error);
+        end = clock();
+        cout << "hierarchy3 milliseconds: " << end - start << endl;
     }
 
     for(uint8 method = 0; method < numberOfMethods; method++) {
@@ -194,7 +321,7 @@ int main()
     QList<size_t> outputList(commonBrokenPixels.begin(), commonBrokenPixels.end());
     sort(outputList.begin(), outputList.end());
 
-    cout << "Common pixels: " << outputList.count() << endl;
+    cout << "Pixels total: " << outputList.count() << endl;
     cout << setw(11) << setfill(' ') << "";
     for(uint8 method = 0; method < numberOfMethods; method++) {
         cout << setw(9) << setfill(' ') << "Method " + to_string(method);
