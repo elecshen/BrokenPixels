@@ -44,13 +44,16 @@ QSet<size_t>* avgBrokenPixelSearch(uint32* raster, uint32 w, size_t npixels, con
      */
     size_t* adjacentPositions;
     uint8 adjSize;
+    size_t lineBorder;
     if(k == 3) {
         adjSize = 8;
-        adjacentPositions = new size_t[adjSize]{0, 1, 2, w, w+2, w+w, w+w+1, w+w+2};
+        adjacentPositions = new size_t[adjSize]{0, 1, 2, w, w+2, 2*w, 2*w+1, 2*w+2};
+        lineBorder = w-2;
     }
     else {
         adjSize = 24;
         adjacentPositions = new size_t[adjSize]{0, 1, 2, 3, 4, w, w+1, w+2, w+3, w+4, 2*w, 2*w+1, 2*w+3, 2*w+4, 3*w, 3*w+1, 3*w+2, 3*w+3, 3*w+4, 4*w, 4*w+1, 4*w+2, 4*w+3, 4*w+4};
+        lineBorder = w-4;
     }
     const size_t comparedPosition = adjacentPositions[adjSize - 1] / 2;
     uint16 sum[4];
@@ -58,6 +61,8 @@ QSet<size_t>* avgBrokenPixelSearch(uint32* raster, uint32 w, size_t npixels, con
     QSet<size_t>* brokenPixels = new QSet<size_t>;
     double delta;
     for(size_t i = 0; i < npixels-adjacentPositions[adjSize - 1]; i++) {
+        if(!(i%w < lineBorder))
+            continue;
         for(uint8 channel = 0; channel < 4; channel++)
             sum[channel] = 0;
         for(uint8 pos = 0; pos < adjSize; pos++) {
@@ -120,6 +125,8 @@ QSet<size_t>* medianBrokenPixelSearch(uint32* raster, uint32 w, size_t npixels, 
     int16 delta;
 
     for(size_t i = 0; i < npixels-w-w-2; i++) {
+        if(!(i%w < w-2))
+            continue;
         for(uint8 channel = 0; channel < 4; channel++) {
             cPixel = (raster[i + cPos] >> channel*8) & 0xff;
             channels[channel] = median(
